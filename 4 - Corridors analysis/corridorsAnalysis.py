@@ -133,6 +133,11 @@ def find_least_cost_path(cost_raster, patch_raster, start_id, end_id):
     # Find all possible start coordinates
     start_coords = np.argwhere(patch_raster == start_id)
     
+    # Edit cost raster so that end and start = 0
+    cost_raster_function = copy.deepcopy(cost_raster)
+    # cost_raster_function = np.where(patch_raster == start_id, 0, cost_raster_function)
+    # cost_raster_function = np.where(patch_raster == end_id, 0, cost_raster_function)
+    
     # Initialize data structures
     rows, cols = cost_raster.shape
     distances = np.full((rows, cols), np.inf)
@@ -147,7 +152,7 @@ def find_least_cost_path(cost_raster, patch_raster, start_id, end_id):
         heapq.heappush(pq, (0, start[0], start[1]))
     
     # Possible movements
-    directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+    directions = [(-1, 0), (1, 0), (0, -1), (0, 1), (1, 1), (-1, 1), (1, -1), (-1, -1)]
     
     while pq:
         current_cost, r, c = heapq.heappop(pq)
@@ -160,7 +165,7 @@ def find_least_cost_path(cost_raster, patch_raster, start_id, end_id):
         for dr, dc in directions:
             nr, nc = r + dr, c + dc
             if 0 <= nr < rows and 0 <= nc < cols:
-                movement_cost = cost_raster[nr, nc]
+                movement_cost = ((cost_raster_function[r, c] + cost_raster_function[nr, nc])/2) * (math.sqrt(dr * dr + dc * dc))
                 new_cost = current_cost + movement_cost
                 
                 if new_cost < distances[nr, nc]:
@@ -267,6 +272,12 @@ os.remove(tempPatchRasterPath)
 # Preparing the final, composite raster of corridors.
 finalCorridorsRaster = np.full_like(resistanceRaster, np.inf, dtype=float)
 
+# Getting raster cell size to edit the values of the CWD raster later
+# This is because the source code of whitebox computes the CWD by multiplicating every "movement"
+# by the distance between cells centroids (in m2). We don't want that here.
+with rasterio.open(folderWithData + "../ResistanceCostMapCreation/CostMaps/MEDIUM (100x100m)/resistanceCostMapPitherEtAl2023.tif") as src:
+    cell_size_x, cell_size_y = src.res
+
 # For each link of the MPG, we get the two weighted distance rasters made by
 # Whitebox, and combine them according to the equation of linkage mapper to get
 # a corridor raster between the two patches.
@@ -281,8 +292,8 @@ for link in tqdm(linksDictionnary.keys()):
     firstPatchCWD_Raster = getRasterData(dictOfCWD_Rasters_Paths[firstPatch])
     secondPatchCWD_Raster = getRasterData(dictOfCWD_Rasters_Paths[secondPatch])
 
-    # Creating corridor raster
-    corridorRaster = firstPatchCWD_Raster + secondPatchCWD_Raster
+    # Creating corridor raster (removing the addition of the distance cost in meters added by whitebox)
+    corridorRaster = (firstPatchCWD_Raster + secondPatchCWD_Raster)/((cell_size_x + cell_size_y)/2)
     
     # WARNING
     # The least cost paths from grainscape don't seem good. I'll recompute them here
